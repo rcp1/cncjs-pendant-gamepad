@@ -1,0 +1,39 @@
+{
+  "name": "cncjs-pendant-gamepad",
+  "version": "0.1.0",
+  "description": "A cncjs pendant for Linux joystick driver.",
+  "main": "./index.js",
+  "engines": {
+    "node": ">=4"
+  },
+  "bin": {
+    "cncjs-pendant-gamepad": "./bin/cncjs-pendant-gamepad"
+  },
+  "preferGlobal": true,
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rcp1/cncjs-pendant-gamepad.git"
+  },
+  "keywords": [
+    "cncjs",
+    "pendant",
+    "xbox"
+  ],
+  "author": "Robin Petereit <robin.petereit@tum.de>",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/rcp1/cncjs-pendant-gamepad/issues"
+  },
+  "homepage": "https://github.com/rcp1/cncjs-pendant-gamepad#readme",
+  "dependencies": {
+    "commander": "^5.0.0-4",
+    "inquirer": "^7.1.0",
+    "jsonwebtoken": "^8.5.1",
+    "lodash": "^4.17.15",
+    "serialport": "^8.0.7",
+    "socket.io-client": "^2.3.0"
+  }
+}
