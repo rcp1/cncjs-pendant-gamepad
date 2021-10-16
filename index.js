@@ -103,6 +103,7 @@ module.exports = function (options, callback) {
     var step_feedrate_selection = new Selector(2, STEP_FEEDRATES);
     const MAX_JOG_FEEDRATE = 3000;
     const JOG_COMMAND_INTERVAL = 100;
+    const JOG_COMMAND_TIMEOUT = 1000;
 
     const BUTTONS = {
         0: { id: 'A', cb: onA },
@@ -187,6 +188,7 @@ module.exports = function (options, callback) {
     socket.on('serialport:read', function (data) {
         if (data.includes('ok') || data.includes('error')) {
             jog_pending = false;
+            clearTimeout(jogPendingTimeout);
         } else {
             console.log('Unhandled response: ' + data)
         }
@@ -318,13 +320,10 @@ module.exports = function (options, callback) {
 
     // D-Pad --------------------------------------
     function dpad(axis, direction) {
-        if (!jog_pending) {
-            var cmd = '$J=G91G21'
-                + axis + direction * step_distance_selection.get().toFixed(4)
-                + 'F' + step_feedrate_selection.get().toFixed(2)
-            socket.emit('command', options.port, 'gcode', cmd);
-            jog_pending = true;
-        }
+        var cmd = '$J=G91G21'
+            + axis + direction * step_distance_selection.get().toFixed(4)
+            + 'F' + step_feedrate_selection.get().toFixed(2)
+        jog(cmd);
     }
 
     function onPADX(value) {
@@ -401,7 +400,7 @@ module.exports = function (options, callback) {
 
     var left_y = new AxisState();
     function onLSY(value) {
-        left_y.update(value);
+        left_y.update(-value);
     };
 
     // Right stick
@@ -412,11 +411,23 @@ module.exports = function (options, callback) {
 
     var right_y = new AxisState();
     function onRSY(value) {
-        right_y.update(value);
+        right_y.update(-value);
     };
 
     function map(x, in_range_half, out_range_half) {
         return Number((x + in_range_half) * out_range_half / in_range_half - out_range_half).toFixed(2);
+    };
+
+    function jog(cmd) {
+        if (!jog_pending) {
+            socket.emit('command', options.port, 'gcode', cmd);
+            jog_pending = true;
+            setTimeout(jogPendingTimeout, JOG_COMMAND_TIMEOUT);
+        }
+    }
+
+    function jogPendingTimeout() {
+        jog_pending = false;
     };
 
     setInterval(stickMovement, JOG_COMMAND_INTERVAL);
@@ -426,14 +437,12 @@ module.exports = function (options, callback) {
             var x = left_x;
             var y = left_y;
             var z = right_y;
-            if (!jog_pending && (x.active || y.active || z.active)) {
+            if (x.active || y.active || z.active) {
                 var jog_feedrate = decideFeedrate(x, y, z);
                 var cmd = '$J=G91G21'
                     + motionVector(x, y, z, jog_feedrate)
                     + 'F' + jog_feedrate;
-                console.log(cmd);
-                socket.emit('command', options.port, 'gcode', cmd);
-                jog_pending = true;
+                jog(cmd);
             }
         }
     };
