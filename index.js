@@ -47,10 +47,62 @@ module.exports = function (options, callback) {
         'query': 'token=' + token
     });
 
+    class AxisState {
+        constructor() {
+            this.value = 0;
+            this.active = false;
+        }
+
+        update(value) {
+            this.value = value;
+            this.active = value != 0;
+        }
+
+        sign() {
+            return Math.sign(this.value);
+        }
+    };
+
+    class Selector {
+        constructor(default_index, options) {
+            this.index = Number(default_index);
+            this.options = options;
+        }
+
+        increase() {
+            this.index = Math.min(this.index + 1, this.options.length - 1);
+        }
+
+        decrease() {
+            this.index = Math.max(this.index - 1, 0);
+        }
+
+        get() {
+            return this.options[this.index];
+        }
+
+    };
+
     const JOG_CANCEL_CMD = '\x85';
 
     const SPINDLE_MIN_SPEED = 0;
     const SPINDLE_MAX_SPEED = 24000;
+    const STEP_FEEDRATES = [
+        100,
+        500,
+        1000,
+        2000
+    ];
+    const STEP_DISTANCES = [
+        0.01,
+        0.1,
+        1.0,
+        10.0
+    ];
+    var step_distance_selection = new Selector(2, STEP_DISTANCES);
+    var step_feedrate_selection = new Selector(2, STEP_FEEDRATES);
+    const MAX_JOG_FEEDRATE = 3000;
+    const JOG_COMMAND_INTERVAL = 100;
 
     const BUTTONS = {
         0: { id: 'A', cb: onA },
@@ -80,12 +132,14 @@ module.exports = function (options, callback) {
         7: { id: 'PADY', cb: onPADY },
     };
 
-    const JOYSTICK_DEADZONE = 500;
+    const JOYSTICK_DEADZONE = 750;
     const JOYSTICK_SENSITIVITY = 100;
     const JOYSTICK_AXIS_MAX = 32767;
     const JOYSTICK_ID = 0;
 
     const joy = new joystick.Joystick(JOYSTICK_ID, JOYSTICK_DEADZONE, JOYSTICK_SENSITIVITY);
+
+    var jog_pending = false;
 
     var controller_connected = false;
     const reconnect_check_time = 3000;  // ms
@@ -130,6 +184,14 @@ module.exports = function (options, callback) {
         callback(new Error('Error opening serial port "' + options.port + '"'));
     });
 
+    socket.on('serialport:read', function (data) {
+        if (data.includes('ok') || data.includes('error')) {
+            jog_pending = false;
+        } else {
+            console.log('Unhandled response: ' + data)
+        }
+    });
+
     // Callbacks ----------------------------------
 
     joy.on('error', (err) => {
@@ -143,19 +205,19 @@ module.exports = function (options, callback) {
     });
 
     joy.on('button', function (e) {
-        console.log(BUTTONS[e.number].id, " ", e.value);
+        // console.log(BUTTONS[e.number].id, " ", e.value);
         BUTTONS[e.number].cb(e.value);
     });
 
     joy.on('axis', function (e) {
-        //console.log(BUTTONS[e.number].id, " ", e.value);
+        // console.log(AXES[e.number].id, " ", e.value);
         AXES[e.number].cb(e.value);
     });
 
     // Buttons ------------------------------------
 
     function onXXX(value) {
-        console.log("Unknown button pressed: " + value);
+        console.log("Unknown pressed: " + value);
     }
 
     var lb = false;
@@ -255,22 +317,15 @@ module.exports = function (options, callback) {
     };
 
     // D-Pad --------------------------------------
-
     function dpad(axis, direction) {
-        socket.emit('command', options.port, 'gcode', '$J=G91G21'
-            + axis + direction * step_distance
-            + 'F' + jog_feedrate.toFixed(2));
+        if (!jog_pending) {
+            var cmd = '$J=G91G21'
+                + axis + direction * step_distance_selection.get().toFixed(4)
+                + 'F' + step_feedrate_selection.get().toFixed(2)
+            socket.emit('command', options.port, 'gcode', cmd);
+            jog_pending = true;
+        }
     }
-
-    const STEP_DISTANCES = [
-        0.01,
-        0.1,
-        1.0,
-        10.0
-    ];
-
-    var step_distance_selection = 2;
-    var step_distance = STEP_DISTANCES[step_distance_selection];
 
     function onPADX(value) {
         // Deadman switch
@@ -282,15 +337,13 @@ module.exports = function (options, callback) {
             }
         } else {
             if (value == -JOYSTICK_AXIS_MAX) {
-                step_distance_selection = Math.max((step_distance_selection - 1), 0);
+                step_distance_selection.decrease()
             } else if (value == JOYSTICK_AXIS_MAX) {
-                step_distance_selection = Math.min((step_distance_selection + 1), STEP_DISTANCES.length - 1);
+                step_distance_selection.increase()
             }
-            step_distance = STEP_DISTANCES[step_distance_selection];
         }
     }
 
-    // Y
     function onPADY(value) {
         // Deadman switch
         if (lb) {
@@ -298,6 +351,12 @@ module.exports = function (options, callback) {
                 dpad('Y', -1)
             } else if (value == JOYSTICK_AXIS_MAX) {
                 dpad('Y', 1)
+            }
+        } else {
+            if (value == -JOYSTICK_AXIS_MAX) {
+                step_feedrate_selection.increase()
+            } else if (value == JOYSTICK_AXIS_MAX) {
+                step_feedrate_selection.decrease()
             }
         }
     }
@@ -335,44 +394,88 @@ module.exports = function (options, callback) {
     // Sticks ------------------------------------
 
     // Left stick
-    var left_x = 0;
+    var left_x = new AxisState();
     function onLSX(value) {
-        left_x = value;
+        left_x.update(value);
     };
 
-    var left_y = 0;
+    var left_y = new AxisState();
     function onLSY(value) {
-        left_y = -value;
+        left_y.update(value);
     };
 
     // Right stick
-    var right_x = 0;
+    var right_x = new AxisState();
     function onRSX(value) {
-        right_x = value;
+        right_x.update(value);
     };
 
-    var right_y = 0;
+    var right_y = new AxisState();
     function onRSY(value) {
-        right_y = -value;
+        right_y.update(value);
     };
 
     function map(x, in_range_half, out_range_half) {
-        return Number((x + in_range_half) * out_range_half / in_range_half - out_range_half).toFixed(4);
+        return Number((x + in_range_half) * out_range_half / in_range_half - out_range_half).toFixed(2);
     };
 
-    var jog_distance = 3.3;
-    var jog_feedrate = 1000;
-    setInterval(stickMovement, 50);
+    setInterval(stickMovement, JOG_COMMAND_INTERVAL);
     function stickMovement() {
         // Deadman switch
         if (lb) {
-            if (left_x != 0 || left_y != 0 || right_y != 0) {
-                socket.emit('command', options.port, 'gcode', '$J=G91G21'
-                    + 'X' + map(left_x, JOYSTICK_AXIS_MAX, jog_distance)
-                    + 'Y' + map(left_y, JOYSTICK_AXIS_MAX, jog_distance)
-                    + 'Z' + map(right_y, JOYSTICK_AXIS_MAX, jog_distance)
-                    + 'F' + jog_feedrate.toFixed(2));
+            var x = left_x;
+            var y = left_y;
+            var z = right_y;
+            if (!jog_pending && (x.active || y.active || z.active)) {
+                var jog_feedrate = decideFeedrate(x, y, z);
+                var cmd = '$J=G91G21'
+                    + motionVector(x, y, z, jog_feedrate)
+                    + 'F' + jog_feedrate;
+                console.log(cmd);
+                socket.emit('command', options.port, 'gcode', cmd);
+                jog_pending = true;
             }
         }
     };
+
+    function decideFeedrate(x, y, z) {
+        // Jog feedrate is norm of xy vector
+        var jog_feedrate = Math.sqrt(feedrate(x.value) ** 2 + feedrate(y.value) ** 2);
+        // Jog feedrate can be overriden by lower z feedrate
+        if (z.active) {
+            var z_jog_feedrate = feedrate(z.value);
+            jog_feedrate = jog_feedrate != 0 ? Math.min(jog_feedrate, z_jog_feedrate) : z_jog_feedrate;
+        }
+
+        return jog_feedrate;
+    }
+
+    function feedrate(value) {
+        return Math.abs(map(value, JOYSTICK_AXIS_MAX, MAX_JOG_FEEDRATE));
+    };
+
+    function motionVector(x, y, z, jog_feedrate) {
+        var jog_distance = jogDistance(jog_feedrate);
+        var motion_vector_string = '';
+        if (x.active) {
+            motion_vector_string += "X";
+            motion_vector_string += x.sign() * jog_distance;
+        }
+        if (y.active) {
+            motion_vector_string += "Y";
+            motion_vector_string += y.sign() * jog_distance;
+        }
+        if (z.active) {
+            motion_vector_string += "Z";
+            motion_vector_string += z.sign() * jog_distance;
+        }
+
+        return motion_vector_string;
+    };
+
+    function jogDistance(jog_feedrate) {
+        // Calculate how long we should be able to move at the given interval
+        return ((jog_feedrate / 60.0) * (JOG_COMMAND_INTERVAL / 1000.0) * 0.7).toFixed(4);
+    }
+
 };
