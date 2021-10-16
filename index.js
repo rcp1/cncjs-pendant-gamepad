@@ -207,13 +207,21 @@ module.exports = function (options, callback) {
     });
 
     joy.on('button', function (e) {
-        // console.log(BUTTONS[e.number].id, " ", e.value);
-        BUTTONS[e.number].cb(e.value);
+        if (e.init) {
+            // Print available button functionality
+            console.log(BUTTONS[e.number].id, " ", e.value);
+        } else {
+            BUTTONS[e.number].cb(e.value);
+        }
     });
 
     joy.on('axis', function (e) {
-        // console.log(AXES[e.number].id, " ", e.value);
-        AXES[e.number].cb(e.value);
+        if (e.init) {
+            // Print available axis functionality
+            console.log(AXES[e.number].id, " ", e.value);
+        } else {
+            AXES[e.number].cb(e.value);
+        }
     });
 
     // Buttons ------------------------------------
