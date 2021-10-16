@@ -47,7 +47,7 @@ class Joystick extends events {
   constructor(id, deadzone, sensitivity) {
     super();
 
-    const buffer = new Buffer(8);
+    const buffer = Buffer.alloc(8);
     let fd;
 
     // Last reading from this axis, used for debouncing events using sensitivty setting
