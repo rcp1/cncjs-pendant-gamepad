@@ -355,9 +355,9 @@ module.exports = function (options, callback) {
         // Deadman switch
         if (lb) {
             if (value == -JOYSTICK_AXIS_MAX) {
-                dpad('Y', -1)
-            } else if (value == JOYSTICK_AXIS_MAX) {
                 dpad('Y', 1)
+            } else if (value == JOYSTICK_AXIS_MAX) {
+                dpad('Y', -1)
             }
         } else {
             if (value == -JOYSTICK_AXIS_MAX) {
