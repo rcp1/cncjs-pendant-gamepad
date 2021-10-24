@@ -50,7 +50,7 @@ class Joystick extends events {
     const buffer = Buffer.alloc(8);
     let fd;
 
-    // Last reading from this axis, used for debouncing events using sensitivty setting
+    // Last reading from this axis, used for debouncing events using sensitivity setting
     let lastAxisValue = [];
     let lastAxisEmittedValue = [];
 
