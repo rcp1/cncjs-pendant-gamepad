@@ -47,6 +47,43 @@ module.exports = function (options, callback) {
         'query': 'token=' + token
     });
 
+    class ButtonState {
+        constructor(timeout, onShortPressed, onLongPressed, onLongCanceled) {
+            this.pending = false;
+            this.long_pressed = false;
+            this.timeout = timeout;
+            this.timeout_id = 0;
+            this.onShortPressed = onShortPressed;
+            this.onLongPressed = onLongPressed;
+            this.onLongCanceled = onLongCanceled;
+        }
+
+        press() {
+            if (!this.pending) {
+                this.pending = true;
+                this.timeout_id = setTimeout(this.onTimeout.bind(this), this.timeout);
+            }
+        }
+
+        unpress() {
+            if (this.pending) {
+                this.pending = false;
+                if (!this.long_pressed) {
+                    clearTimeout(this.timeout_id);
+                    this.onShortPressed();
+                } else {
+                    this.long_pressed = false;
+                    this.onLongCanceled();
+                }
+            }
+        }
+
+        onTimeout() {
+            this.long_pressed = true;
+            this.onLongPressed();
+        };
+    }
+
     class AxisState {
         constructor() {
             this.value = 0;
@@ -137,6 +174,7 @@ module.exports = function (options, callback) {
     const JOYSTICK_SENSITIVITY = 100;
     const JOYSTICK_AXIS_MAX = 32767;
     const JOYSTICK_ID = 0;
+    const JOYSTICK_LONG_PRESS_TIMEOUT = 500;
 
     const joy = new joystick.Joystick(JOYSTICK_ID, JOYSTICK_DEADZONE, JOYSTICK_SENSITIVITY);
 
@@ -220,6 +258,7 @@ module.exports = function (options, callback) {
             // Print available axis functionality
             console.log(AXES[e.number].id, " ", e.value);
         } else {
+            console.log(AXES[e.number].id, " ", e.value);
             AXES[e.number].cb(e.value);
         }
     });
@@ -268,6 +307,10 @@ module.exports = function (options, callback) {
         }
     };
 
+    var y_z_up = new ButtonState(JOYSTICK_LONG_PRESS_TIMEOUT, jogShort.bind(null, 'Z', 1),
+        jogLong.bind(null, 'Z', 1), cancelJog);
+    var a_z_down = new ButtonState(JOYSTICK_LONG_PRESS_TIMEOUT, jogShort.bind(null, 'Z', -1),
+        jogLong.bind(null, 'Z', -1), cancelJog);
     function onA(value) {
         if (value == 1) {
             if (!lb && !rb) {
@@ -276,9 +319,11 @@ module.exports = function (options, callback) {
             } else if (lb) {
                 // Deadman switch
                 if (lb) {
-                    dpad('Z', -1)
+                    a_z_down.press()
                 }
             }
+        } else {
+            a_z_down.unpress()
         }
     };
 
@@ -304,15 +349,18 @@ module.exports = function (options, callback) {
     function onY(value) {
         if (value == 1) {
             if (!lb && !rb) {
+                // Nothing
             } else if (lb) {
                 // Deadman switch
                 if (lb) {
-                    dpad('Z', 1)
+                    y_z_up.press()
                 }
             } else if (rb) {
                 // Home
                 socket.emit('command', options.port, 'homing');
             }
+        } else {
+            y_z_up.unpress()
         }
     };
 
@@ -327,20 +375,40 @@ module.exports = function (options, callback) {
     };
 
     // D-Pad --------------------------------------
-    function dpad(axis, direction) {
+    function jogShort(axis, direction) {
         var cmd = '$J=G91G21'
             + axis + direction * step_distance_selection.get().toFixed(4)
             + 'F' + step_feedrate_selection.get().toFixed(2)
         jog(cmd);
+    };
+
+    function jogLong(axis, direction) {
+        var cmd = '$J=G91G21'
+            + axis + direction * 1000.0
+            + 'F' + step_feedrate_selection.get().toFixed(2)
+        jog(cmd);
+    };
+
+    function cancelJog() {
+        // Stop jog
+        socket.emit('write', options.port, JOG_CANCEL_CMD);
     }
+
+    var pad_x_left = new ButtonState(JOYSTICK_LONG_PRESS_TIMEOUT, jogShort.bind(null, 'X', -1),
+        jogLong.bind(null, 'X', -1), cancelJog);
+    var pad_x_right = new ButtonState(JOYSTICK_LONG_PRESS_TIMEOUT, jogShort.bind(null, 'X', 1),
+        jogLong.bind(null, 'X', 1), cancelJog);
 
     function onPADX(value) {
         // Deadman switch
         if (lb) {
             if (value == -JOYSTICK_AXIS_MAX) {
-                dpad('X', -1)
+                pad_x_left.press();
             } else if (value == JOYSTICK_AXIS_MAX) {
-                dpad('X', 1)
+                pad_x_right.press();
+            } else {
+                pad_x_left.unpress();
+                pad_x_right.unpress();
             }
         } else {
             if (value == -JOYSTICK_AXIS_MAX) {
@@ -351,13 +419,21 @@ module.exports = function (options, callback) {
         }
     }
 
+    var pad_y_up = new ButtonState(JOYSTICK_LONG_PRESS_TIMEOUT, jogShort.bind(null, 'Y', 1),
+        jogLong.bind(null, 'Y', 1), cancelJog);
+    var pad_y_down = new ButtonState(JOYSTICK_LONG_PRESS_TIMEOUT, jogShort.bind(null, 'Y', -1),
+        jogLong.bind(null, 'Y', -1), cancelJog);
+
     function onPADY(value) {
         // Deadman switch
         if (lb) {
             if (value == -JOYSTICK_AXIS_MAX) {
-                dpad('Y', 1)
+                pad_y_up.press();
             } else if (value == JOYSTICK_AXIS_MAX) {
-                dpad('Y', -1)
+                pad_y_down.press();
+            } else {
+                pad_y_up.unpress();
+                pad_y_down.unpress();
             }
         } else {
             if (value == -JOYSTICK_AXIS_MAX) {
