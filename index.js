@@ -121,6 +121,7 @@ module.exports = function (options, callback) {
     };
 
     const JOG_CANCEL_CMD = '\x85';
+    const JOG_BASE_CMD = '$J=G91G21';
 
     const SPINDLE_MIN_SPEED = 0;
     const SPINDLE_MAX_SPEED = 24000;
@@ -523,7 +524,7 @@ module.exports = function (options, callback) {
             var z = right_y;
             if (x.active || y.active || z.active) {
                 var jog_feedrate = decideFeedrate(x, y, z);
-                var cmd = '$J=G91G21'
+                var cmd = JOG_BASE_CMD
                     + motionVector(x, y, z, jog_feedrate)
                     + 'F' + jog_feedrate;
                 jog(cmd);
@@ -567,8 +568,8 @@ module.exports = function (options, callback) {
     };
 
     function jogDistance(jog_feedrate) {
-        // Calculate how long we should be able to move at the given interval
-        return ((jog_feedrate / 60.0) * (JOG_COMMAND_INTERVAL / 1000.0) * 0.7).toFixed(4);
+        // Calculate how long we should be able to move at the given interval + 20% acceleration time
+        return ((jog_feedrate / 60.0) * (JOG_COMMAND_INTERVAL / 1000.0) * 1.2).toFixed(4);
     }
 
 };
